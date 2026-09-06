@@ -3,10 +3,12 @@
 #include "BeatEmUpCharacter.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
+#include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
+#include "DrawDebugHelpers.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
+#include "Engine/World.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
@@ -17,10 +19,9 @@ ABeatEmUpCharacter::ABeatEmUpCharacter()
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
-	// Don't rotate when the controller rotates. Let that just affect the camera.
-	bUseControllerRotationPitch = false;
+	// configure the Pawn properties
 	bUseControllerRotationYaw = false;
-	bUseControllerRotationRoll = false;
+	
 
 	// Configure character movement
 	GetCharacterMovement()->bOrientRotationToMovement = true;
@@ -35,16 +36,15 @@ ABeatEmUpCharacter::ABeatEmUpCharacter()
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
 
-	// Create a camera boom (pulls in towards the player if there is a collision)
-	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
-	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 400.0f;
-	CameraBoom->bUsePawnControlRotation = true;
-
-	// Create a follow camera
-	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
-	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
-	FollowCamera->bUsePawnControlRotation = false;
+	// create the camera component
+	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
+	Camera->SetupAttachment(RootComponent);
+	
+	Camera->SetRelativeLocationAndRotation(FVector(0.0f, 300.0f, 0.0f), FRotator(0.0f, -90.0f, 0.0f));
+	
+	// create the health and damage components
+	DamageComponent = CreateDefaultSubobject<UDamageComponent>(TEXT("Damage Component"));
+	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("Health Component"));
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
@@ -61,10 +61,9 @@ void ABeatEmUpCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ABeatEmUpCharacter::Move);
-		EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &ABeatEmUpCharacter::Look);
-
-		// Looking
-		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ABeatEmUpCharacter::Look);
+		
+		// Attacking
+		EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Started, this, &ABeatEmUpCharacter::Attack);
 	}
 	else
 	{
@@ -74,51 +73,32 @@ void ABeatEmUpCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 void ABeatEmUpCharacter::Move(const FInputActionValue& Value)
 {
+	
 	// input is a Vector2D
-	FVector2D MovementVector = Value.Get<FVector2D>();
+	FVector2D MoveVector = Value.Get<FVector2D>();
 
 	// route the input
-	DoMove(MovementVector.X, MovementVector.Y);
+	DoMove(MoveVector.Y);
 }
 
-void ABeatEmUpCharacter::Look(const FInputActionValue& Value)
+void ABeatEmUpCharacter::Attack(const FInputActionValue& Value)
 {
-	// input is a Vector2D
-	FVector2D LookAxisVector = Value.Get<FVector2D>();
-
-	// route the input
-	DoLook(LookAxisVector.X, LookAxisVector.Y);
+	DoAttack();
 }
 
-void ABeatEmUpCharacter::DoMove(float Right, float Forward)
+void ABeatEmUpCharacter::DoMove(float Forward)
 {
 	if (GetController() != nullptr)
 	{
-		// find out which way is forward
-		const FRotator Rotation = GetController()->GetControlRotation();
-		const FRotator YawRotation(0, Rotation.Yaw, 0);
-
-		// get forward vector
-		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-
-		// get right vector 
-		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-
+		ActionValueY = Forward;
+		
+		const FVector MoveDir = FVector(1.0f, Forward > 0.0f ? 0.1f : -0.1f, 0.0f);
+		
 		// add movement 
-		AddMovementInput(ForwardDirection, Forward);
-		AddMovementInput(RightDirection, Right);
+		AddMovementInput(MoveDir, Forward);
 	}
 }
 
-void ABeatEmUpCharacter::DoLook(float Yaw, float Pitch)
-{
-	if (GetController() != nullptr)
-	{
-		// add yaw and pitch input to controller
-		AddControllerYawInput(Yaw);
-		AddControllerPitchInput(Pitch);
-	}
-}
 
 void ABeatEmUpCharacter::DoJumpStart()
 {
@@ -130,4 +110,60 @@ void ABeatEmUpCharacter::DoJumpEnd()
 {
 	// signal the character to stop jumping
 	StopJumping();
+}
+
+void ABeatEmUpCharacter::DoAttack()
+{
+	if (!AttackMontage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AttackMontage is null! Please assign it in the Blueprint instance."));
+		return;
+	}
+	
+	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	
+	if (AnimInstance && !AnimInstance->Montage_IsPlaying(AttackMontage))
+	{
+		float PlayLength = AnimInstance->Montage_Play(AttackMontage, 1.0f);
+	}
+	
+	UWorld* World = GetWorld();
+	if (!World) return;
+	
+	FVector StartLocation = GetActorLocation() + (GetActorForwardVector() * 40.0f);
+	FVector EndLocation = StartLocation + (GetActorForwardVector() * AttackRange);
+	
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+	
+	FCollisionShape SphereShape = FCollisionShape::MakeSphere(AttackRadius);
+	
+	FHitResult HitResult;
+	bool bHit = World->SweepSingleByChannel(
+		HitResult,
+		StartLocation,
+		EndLocation,
+		FQuat::Identity,
+		ECC_Visibility,
+		SphereShape,
+		QueryParams
+	);
+	
+	if (bShowDebugTrace)
+	{
+		FColor TraceColor = bHit ? FColor::Green : FColor::Red;
+		DrawDebugLine(World, StartLocation, EndLocation, TraceColor, false, 2.0f, 0, 2.0f);
+		FVector DebugSphereLocation = bHit ? HitResult.ImpactPoint : EndLocation;
+		DrawDebugSphere(World, DebugSphereLocation, AttackRadius, 12, TraceColor, false, 2.0f);
+	}
+	
+	if (bHit)
+	{
+		AActor* HitActor = HitResult.GetActor();
+		if (HitActor)
+		{
+			//Damage Logic
+			DamageComponent->DealDamage(HitActor, Damage);
+		}
+	}
 }
