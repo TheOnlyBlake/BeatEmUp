@@ -124,7 +124,7 @@ void ABeatEmUpCharacter::DoAttack()
 	
 	if (AnimInstance && !AnimInstance->Montage_IsPlaying(AttackMontage))
 	{
-		float PlayLength = AnimInstance->Montage_Play(AttackMontage, 1.0f);
+		float PlayLength = AnimInstance->Montage_Play(AttackMontage, 1.25f);
 	}
 	
 	UWorld* World = GetWorld();
@@ -144,7 +144,7 @@ void ABeatEmUpCharacter::DoAttack()
 		StartLocation,
 		EndLocation,
 		FQuat::Identity,
-		ECC_Visibility,
+		ECC_Pawn,
 		SphereShape,
 		QueryParams
 	);

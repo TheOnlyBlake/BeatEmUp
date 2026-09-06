@@ -12,6 +12,7 @@ void UHealthBarWidget::OnHealthChanged(float NewHealth, float MaxHealth)
 	float HealthPercent = NewHealth / MaxHealth;
 	HealthProgressBar->SetPercent(HealthPercent);
 	HealthTextBlock->SetText(FText::FromString(FString::Printf(TEXT("%d%%"), static_cast<int32>(HealthPercent * 100))));
+	GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Green, FString::Printf(TEXT("Health: %f / %f"), NewHealth, MaxHealth));
 }
 
 void UHealthBarWidget::SetTargetHealthComponent(UHealthComponent* HealthComponent)

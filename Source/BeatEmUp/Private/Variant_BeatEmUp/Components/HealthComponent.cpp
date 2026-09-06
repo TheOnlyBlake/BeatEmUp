@@ -34,7 +34,7 @@ void UHealthComponent::TakeDamage(AActor* DamagedActor, float DamageAmount, cons
 	
 	CurrentHealth = FMath::Clamp(CurrentHealth - DamageAmount, 0.0f, MaxHealth);
 	
-	GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("Damage: %f | Damaged Actor %s"), DamageAmount, *DamagedActor->GetName()));
+	GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("Damage: %f | Current Health: %f | Max Health: %f"), DamageAmount, CurrentHealth, MaxHealth));
 	
 	OnHealthChanged.Broadcast(CurrentHealth, MaxHealth);
 	
